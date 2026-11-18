@@ -41,8 +41,41 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
 /// [Note]
 /// If it returns [`None`], then the process will terminate, and flutter gui will not be started.
 /// If it returns [`Some`], the action determines whether to start the UI or report failure.
+// 绿色版：在读取任何配置之前，按当前客户端的 exe 名设置 APP_NAME，
+// 让内置不同服务器地址的多个客户端各自使用独立的配置子目录，从而可同时运行。
+// 优先级：RUSTDESK_APPNAME 环境变量（portable 包装器传入的外层 exe 名） > 当前 exe 文件名。
+#[cfg(windows)]
+fn init_green_app_name() {
+    // 优先用 portable 包装器传入的外层 exe 名，否则用当前进程 exe 名
+    let name = std::env::var_os(crate::common::PORTABLE_APPNAME_RUNTIME_ENV_KEY)
+        .or_else(|| std::env::current_exe().ok().map(|p| p.into_os_string()))
+        .and_then(|v| {
+            std::path::Path::new(&v)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+        });
+
+    if let Some(name) = name {
+        // 默认客户端保持原名，避免改变默认行为（Windows 文件系统不区分大小写）
+        if name.eq_ignore_ascii_case("rustdesk") {
+            return;
+        }
+        // 清洗 Windows 目录名非法字符，避免 create_dir_all 静默失败
+        let safe: String = name
+            .chars()
+            .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+            .take(64)
+            .collect();
+        if !safe.is_empty() {
+            *hbb_common::config::APP_NAME.write().unwrap() = safe;
+        }
+    }
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<CoreMainAction> {
+    #[cfg(windows)]
+    init_green_app_name(); // 必须在 global_init / load_custom_client 之前
     if !crate::common::global_init() {
         return None;
     }
