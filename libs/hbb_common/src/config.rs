@@ -916,20 +916,31 @@ impl Config {
         }
     }
 
-    pub fn path<P: AsRef<Path>>(p: P) -> PathBuf {
+       pub fn path<P: AsRef<Path>>(p: P) -> PathBuf {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             let mut path: PathBuf = APP_DIR.read().unwrap().clone().into();
             path.push(p);
             return path;
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        // >>> GREEN MODE: Windows 配置写到 exe 所在目录下的 <APP_NAME>/ <<<
+        #[cfg(windows)]
         {
-            #[cfg(not(target_os = "macos"))]
-            let org = "".to_owned();
+            let mut path = std::env::current_exe()
+                .map(|p| p.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf())
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            path.push(APP_NAME.read().unwrap().as_str()); // 不同 exe 名 → 不同子目录
+            path.push(p);
+            fs::create_dir_all(&path).ok();
+            return path;
+        }
+        // >>> END GREEN MODE <<<
+        #[cfg(not(any(target_os = "android", target_os = "ios", windows)))]
+        {
             #[cfg(target_os = "macos")]
             let org = ORG.read().unwrap().clone();
-            // /var/root for root
+            #[cfg(not(target_os = "macos"))]
+            let org = "".to_owned();
             if let Some(project) =
                 directories_next::ProjectDirs::from("", &org, &APP_NAME.read().unwrap())
             {
@@ -940,6 +951,7 @@ impl Config {
             "".into()
         }
     }
+
 
     /// Get the log directory path.
     ///
